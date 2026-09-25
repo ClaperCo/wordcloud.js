@@ -2,6 +2,8 @@ name: CI
 
 on:
   push:
+    branches: ['**']
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
@@ -10,7 +12,7 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
 
 jobs:
   verify:
@@ -34,15 +36,50 @@ jobs:
       - name: Inspect package contents
         run: npm pack --dry-run --ignore-scripts
 
+  release_tag:
+    name: Validate release tag
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      prerelease: ${{ steps.tag.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Require a main-history commit and matching version
+        id: tag
+        run: |
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor HEAD refs/remotes/origin/main; then
+            echo "::error::Release tags must point to a commit in main's history."
+            exit 1
+          fi
+          node --input-type=module <<'NODE'
+          import { appendFileSync, readFileSync } from 'node:fs';
+          const { version } = JSON.parse(readFileSync('package.json', 'utf8'));
+          const tag = process.env.GITHUB_REF_NAME;
+          if (tag !== `v${version}`) {
+            throw new Error(`Tag ${tag} must match package.json version v${version}.`);
+          }
+          const prerelease = /^\d+\.\d+\.\d+-/.test(version);
+          appendFileSync(process.env.GITHUB_OUTPUT, `tag=${tag}\nprerelease=${prerelease}\n`);
+          NODE
+
   publish:
-    name: Publish to npm
-    needs: verify
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    name: Publish npm and GitHub release
+    needs: [verify, release_tag]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: npm
     permissions:
-      contents: read
+      contents: write
       id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -53,30 +90,75 @@ jobs:
           node-version: '24'
           registry-url: https://registry.npmjs.org/
           package-manager-cache: false
-      - name: Check for an unpublished version
-        id: release
-        run: |
-          node --input-type=module <<'NODE'
-          import { appendFileSync, readFileSync } from 'node:fs';
-          const { name, version } = JSON.parse(readFileSync('package.json', 'utf8'));
-          const url = `https://registry.npmjs.org/${encodeURIComponent(name)}/${encodeURIComponent(version)}`;
-          const response = await fetch(url, { signal: AbortSignal.timeout(15_000) });
-          const published = response.status === 200;
-          if (!published && response.status !== 404) {
-            throw new Error(`Registry lookup failed: HTTP ${response.status}`);
-          }
-          appendFileSync(process.env.GITHUB_OUTPUT, `publish=${!published}\n`);
-          console.log(`${name}@${version}: ${published ? 'already published; skipping' : 'ready to publish'}`);
-          NODE
       - name: Pack verified release
-        if: steps.release.outputs.publish == 'true'
         run: |
           npm install --global npm@11
           mkdir "$RUNNER_TEMP/npm-release"
           npm pack --pack-destination "$RUNNER_TEMP/npm-release"
-      - name: Publish to npm
-        if: steps.release.outputs.publish == 'true'
+      - name: Check existing publications
+        id: publication
         env:
-          # Optional bootstrap token; remove it after configuring npm trusted publishing.
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish "$RUNNER_TEMP/npm-release/"*.tgz --access public --ignore-scripts
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.release_tag.outputs.tag }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { createHash } from 'node:crypto';
+          import { appendFileSync, readFileSync, readdirSync } from 'node:fs';
+          import { join } from 'node:path';
+          const { name, version } = JSON.parse(readFileSync('package.json', 'utf8'));
+          const directory = join(process.env.RUNNER_TEMP, 'npm-release');
+          const archives = readdirSync(directory);
+          if (archives.length !== 1 || !archives[0].endsWith('.tgz')) {
+            throw new Error('Expected exactly one release archive.');
+          }
+          const integrity = 'sha512-' + createHash('sha512')
+            .update(readFileSync(join(directory, archives[0]))).digest('base64');
+          const [npmResponse, githubResponse] = await Promise.all([
+            fetch(`https://registry.npmjs.org/${encodeURIComponent(name)}/${encodeURIComponent(version)}`,
+              { signal: AbortSignal.timeout(15_000) }),
+            fetch(`${process.env.GITHUB_API_URL}/repos/${process.env.GITHUB_REPOSITORY}/releases/tags/${encodeURIComponent(process.env.RELEASE_TAG)}`, {
+              headers: { Authorization: `Bearer ${process.env.GH_TOKEN}`, Accept: 'application/vnd.github+json' },
+              signal: AbortSignal.timeout(15_000),
+            }),
+          ]);
+          for (const [registry, response] of [['npm', npmResponse], ['GitHub', githubResponse]]) {
+            if (response.status !== 200 && response.status !== 404) {
+              throw new Error(`${registry} release lookup failed: HTTP ${response.status}`);
+            }
+          }
+          const npmExists = npmResponse.status === 200;
+          if (npmExists && (await npmResponse.json()).dist?.integrity !== integrity) {
+            throw new Error(`${name}@${version} already exists with different contents. Bump the version before tagging.`);
+          }
+          const githubAction = githubResponse.status === 404 ? 'create'
+            : (await githubResponse.json()).draft ? 'publish-draft' : 'skip';
+          appendFileSync(process.env.GITHUB_OUTPUT, `npm_publish=${!npmExists}\ngithub_action=${githubAction}\n`);
+          console.log(`${name}@${version}: npm ${npmExists ? 'already matches' : 'publish'}, GitHub ${githubAction}`);
+          NODE
+      - name: Publish to npm with OIDC
+        if: steps.publication.outputs.npm_publish == 'true'
+        env:
+          PRERELEASE: ${{ needs.release_tag.outputs.prerelease }}
+        run: |
+          args=(--access public --ignore-scripts)
+          if [[ "$PRERELEASE" == 'true' ]]; then
+            args+=(--tag next)
+          fi
+          npm publish "$RUNNER_TEMP/npm-release/"*.tgz "${args[@]}"
+      - name: Publish GitHub release
+        if: steps.publication.outputs.github_action != 'skip'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.release_tag.outputs.tag }}
+          PRERELEASE: ${{ needs.release_tag.outputs.prerelease }}
+          RELEASE_ACTION: ${{ steps.publication.outputs.github_action }}
+        run: |
+          if [[ "$RELEASE_ACTION" == 'publish-draft' ]]; then
+            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease="$PRERELEASE"
+          else
+            args=(--repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes --title "$RELEASE_TAG")
+            if [[ "$PRERELEASE" == 'true' ]]; then
+              args+=(--prerelease)
+            fi
+            gh release create "$RELEASE_TAG" "${args[@]}"
+          fi

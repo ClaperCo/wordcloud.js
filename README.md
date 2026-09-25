@@ -2,7 +2,7 @@
 
 ![Claper word cloud with Engineering and Architecture at the center](./demo/assets/wordcloud.png)
 
-![Word cloud demo preview](./demo/assets/demo-preview.webp)
+![Word cloud demo preview](./demo/assets/demo-preview.gif)
 
 A dependency-free JavaScript word cloud for the browser. Word frequencies determine font sizes; the largest words sit in the center, with smaller rows above and below. The library supplies its own layout styles and does not require Tailwind or a framework.
 
@@ -40,7 +40,7 @@ Give the container an available width and let it grow vertically. Set its font f
 
 ## Install with npm
 
-For a published registry release:
+Install from npm:
 
 ```sh
 npm install @claperco/wordcloud.js
@@ -74,7 +74,7 @@ The package has no runtime dependencies and ships its JavaScript directly, witho
 
 Installing through npm does not change the standalone demo: `node_modules/@claperco/wordcloud.js/demo/index.html` still opens directly from disk without a server.
 
-### Install a local package before publishing
+### Install a local package
 
 From a source checkout:
 
@@ -88,7 +88,7 @@ This regenerates the standalone demo, runs verification, and creates `claperco-w
 npm install ./claperco-wordcloud.js-1.0.0.tgz
 ```
 
-Use the same `import { createWordCloud } from '@claperco/wordcloud.js'` shown above. Publishing is a separate maintainer action; see [CONTRIBUTING.md](./CONTRIBUTING.md).
+Use the same `import { createWordCloud } from '@claperco/wordcloud.js'` shown above.
 
 ## Browser requirements
 
@@ -188,8 +188,10 @@ See [SECURITY.md](./SECURITY.md) for reporting vulnerabilities.
 
 ## Development and license
 
-Run `npm run verify` for syntax checks and the library's data and lifecycle regressions. There are no dependencies to install or build tools to configure. [CONTRIBUTING.md](./CONTRIBUTING.md) describes the source layout, browser checks, and release process.
+Run `npm run verify` for syntax checks and the library's data and lifecycle regressions. There are no dependencies to install or build tools to configure. [CONTRIBUTING.md](./CONTRIBUTING.md) describes the source layout, local checks, and contribution process.
 
-Development happens on `dev`. Merging into `main` publishes a new `package.json` version to npm after CI passes; versions already on the registry are skipped. See [CI publishing setup](./CONTRIBUTING.md#one-time-github-and-npm-setup) for the one-time GitHub environment and npm trusted-publisher configuration.
+Development happens on `dev`. After merging a version bump into `main`, push a matching tag such as `v1.0.1` to publish to npm and create a GitHub Release after CI passes. Branch pushes do not publish. The tag must match `package.json` and point to a commit in `main`'s history. Release tags are restricted to repository administrators.
+
+For maintainers: configure npm's [trusted publisher](https://docs.npmjs.com/trusted-publishers/) for organization `ClaperCo`, repository `wordcloud.js`, workflow `ci.yml`, and environment `npm`, with direct `npm publish` allowed. The GitHub `npm` environment must allow only `v*` tags. No npm token is required. Rerun the original tag workflow to retry a failed release; an existing npm version is skipped only if its archive matches. Prereleases use npm's `next` tag and GitHub's prerelease flag.
 
 Copyright (c) 2026 Alex Lion. Released under the [MIT License](./LICENSE). You may use, modify, redistribute, and sell the software under its terms. Include the copyright and license notice with copies or substantial portions of the software, including when copying the JavaScript file directly.
