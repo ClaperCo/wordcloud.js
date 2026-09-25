@@ -23,8 +23,6 @@ Security fixes target the latest release. Older versions have no guaranteed back
 
 The library renders supplied words in the current page. It does not authenticate users, moderate content, store data remotely, or send network requests. Names are assigned as text, IDs as DOM attributes, and colors are validated as CSS colors. Applications must enforce their own limits on word counts and name lengths when accepting untrusted input.
 
-The optional development server binds to loopback and serves only the standalone demo and library module. Do not expose it as a production service or use a tunnel to make it public without reviewing that boundary.
-
-The standalone demo embeds its JavaScript and sample data and does not load CDN scripts or make network requests. Regenerate it from the maintained sources rather than inserting third-party code into the generated HTML.
+The standalone `demo/index.html` embeds its JavaScript and sample data and does not load CDN scripts or make network requests. Regenerate it from the maintained sources in `demo/` rather than inserting third-party code into the generated HTML.
 
 CI checks pull-request code with read-only repository permissions and does not persist checkout credentials. Only pushes or manual runs on `main` can enter the npm publishing job, after verification succeeds. Configure the `npm` GitHub environment to allow only the `main` branch, and bind npm trusted publishing to `ci.yml` and that environment. The temporary bootstrap `NPM_TOKEN`, if needed, belongs only in that environment and should be revoked after trusted publishing is configured. Keep external actions pinned and do not add secrets to workflows that execute untrusted contributions.

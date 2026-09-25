@@ -1,8 +1,8 @@
-# Claper Word Cloud
+# wordcloud.js
 
-![Claper word cloud with Engineering and Architecture at the center](./assets/wordcloud.png)
+![Claper word cloud with Engineering and Architecture at the center](./demo/assets/wordcloud.png)
 
-![Word cloud demo preview](./assets/demo-preview.webp)
+![Word cloud demo preview](./demo/assets/demo-preview.webp)
 
 A dependency-free JavaScript word cloud for the browser. Word frequencies determine font sizes; the largest words sit in the center, with smaller rows above and below. The library supplies its own layout styles and does not require Tailwind or a framework.
 
@@ -10,11 +10,11 @@ A dependency-free JavaScript word cloud for the browser. Word frequencies determ
 
 ## Demo
 
-Double-click [demo.html](./demo.html) to open it directly in your browser. You can copy this one file anywhere. Its HTML, CSS, JavaScript, sample data, and MIT license are embedded, so it works offline without a server, npm, imports, or other files. JavaScript must be enabled for the interactive controls.
+Double-click [demo/index.html](./demo/index.html) to open it directly in your browser. You can copy this one file anywhere. Its HTML, CSS, JavaScript, sample data, and MIT license are embedded, so it works offline without a server, npm, imports, or other files. JavaScript must be enabled for the interactive controls.
 
 The demo includes Add, Fill data, Clear, and Reset buttons, plus highlight color, text color with automatic shades, and animation controls. Fill data loads 50 sample words; Reset restores the original eight. Both keep your selected configuration.
 
-The checked-in file is ready to use. Maintainers edit `demo.template.html` and run `npm run build:demo` to regenerate it from the library and sample data; see [CONTRIBUTING.md](./CONTRIBUTING.md).
+The checked-in file is ready to use. Maintainers edit `demo/template.html` and run `npm run build:demo` to regenerate it from the library and sample data; see [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## Use the library in a web page
 
@@ -43,7 +43,7 @@ Give the container an available width and let it grow vertically. Set its font f
 For a published registry release:
 
 ```sh
-npm install @claperco/wordcloud
+npm install @claperco/wordcloud.js
 ```
 
 ### Use in an application
@@ -57,7 +57,7 @@ Add a container to your application's HTML:
 Then import the library from application JavaScript using an ES-module-aware bundler:
 
 ```js
-import { createWordCloud } from '@claperco/wordcloud';
+import { createWordCloud } from '@claperco/wordcloud.js';
 
 const cloud = createWordCloud('#word-cloud', [
   { name: 'Design', count: 3 },
@@ -72,7 +72,7 @@ cloud.add('Design');
 
 The package has no runtime dependencies and ships its JavaScript directly, without a consumer-side install or build hook. It is an ES module, not a CommonJS build. Importing it alone does not access the DOM, but creating a cloud requires a browser. In an SSR application, call `createWordCloud()` after the component mounts and `cloud.destroy()` when it unmounts.
 
-Installing through npm does not change the standalone demo: `node_modules/@claperco/wordcloud/demo.html` still opens directly from disk without a server.
+Installing through npm does not change the standalone demo: `node_modules/@claperco/wordcloud.js/demo/index.html` still opens directly from disk without a server.
 
 ### Install a local package before publishing
 
@@ -82,13 +82,13 @@ From a source checkout:
 npm pack
 ```
 
-This regenerates the standalone demo, runs verification, and creates `claperco-wordcloud-1.0.0.tgz`. Copy that archive into your application directory and install it:
+This regenerates the standalone demo, runs verification, and creates `claperco-wordcloud.js-1.0.0.tgz`. Copy that archive into your application directory and install it:
 
 ```sh
-npm install ./claperco-wordcloud-1.0.0.tgz
+npm install ./claperco-wordcloud.js-1.0.0.tgz
 ```
 
-Use the same `import { createWordCloud } from '@claperco/wordcloud'` shown above. Publishing is a separate maintainer action; see [CONTRIBUTING.md](./CONTRIBUTING.md).
+Use the same `import { createWordCloud } from '@claperco/wordcloud.js'` shown above. Publishing is a separate maintainer action; see [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## Browser requirements
 
@@ -180,18 +180,6 @@ Widths are measured using the actual font. Container width changes and font-load
 
 The rendered cloud uses a list role, with each word labeled with its count and percentage. Reduced-motion preferences disable animated effects. The cloud is not an interactive control; add application-specific input controls or a separate live status region if updates need announcements.
 
-## Optional local server
-
-The demo opens directly from disk. To serve it over HTTP during development, run this from a source checkout:
-
-```sh
-npm run dev
-```
-
-Open http://127.0.0.1:5173. Set `PORT` to use another port. The server binds only to loopback and serves an explicit allowlist of demo files; it is not a production server.
-
-The server serves the self-contained demo and the library module. Neither makes network requests or loads CDN scripts.
-
 ## Input safety
 
 Word names and IDs are assigned as text and DOM attributes, not HTML. Color options are validated as CSS colors. If words come from an untrusted feed, limit distinct-word counts and name lengths in your application. Every distinct word requires a DOM element; the library does not enforce input-size limits or provide moderation.
@@ -200,7 +188,7 @@ See [SECURITY.md](./SECURITY.md) for reporting vulnerabilities.
 
 ## Development and license
 
-Run `npm run verify` for syntax checks and the data, lifecycle, and real HTTP server regressions. There are no dependencies to install or build tools to configure. [CONTRIBUTING.md](./CONTRIBUTING.md) describes the source layout, browser checks, and release process.
+Run `npm run verify` for syntax checks and the library's data and lifecycle regressions. There are no dependencies to install or build tools to configure. [CONTRIBUTING.md](./CONTRIBUTING.md) describes the source layout, browser checks, and release process.
 
 Development happens on `dev`. Merging into `main` publishes a new `package.json` version to npm after CI passes; versions already on the registry are skipped. See [CI publishing setup](./CONTRIBUTING.md#one-time-github-and-npm-setup) for the one-time GitHub environment and npm trusted-publisher configuration.
 

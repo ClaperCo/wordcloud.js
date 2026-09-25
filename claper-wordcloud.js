@@ -1,5 +1,5 @@
 /*!
- * @claperco/wordcloud
+ * @claperco/wordcloud.js
  * Copyright (c) 2026 Claper
  * SPDX-License-Identifier: MIT
  * See LICENSE for the full license text.
