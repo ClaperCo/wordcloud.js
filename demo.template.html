@@ -1,0 +1,142 @@
+<!doctype html>
+<!-- Generated demo: edit demo.template.html and run npm run build:demo to update. -->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Claper Word Cloud demo</title>
+    <style>
+      * { box-sizing: border-box; }
+      body { max-width: 52rem; margin: 4rem auto; padding: 0 1.25rem; font: 16px/1.5 system-ui, sans-serif; color: #202020; background: #fff; }
+      h1 { margin-bottom: 0.5rem; font-size: 1.5rem; }
+      p { color: #666; }
+      form { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 1.5rem 0; }
+      form > label { width: 100%; }
+      input, button { padding: 0.6rem 0.8rem; border: 1px solid #ccc; border-radius: 0.35rem; font: inherit; }
+      #word { flex: 1 1 12rem; min-width: 0; }
+      button { background: #f5f5f5; color: inherit; cursor: pointer; }
+      button:disabled { cursor: default; opacity: 0.5; }
+      :focus-visible { outline: 2px solid #1683b4; outline-offset: 2px; }
+      .settings { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem 1.5rem; min-width: 0; margin: 0 0 1.5rem; padding: 1rem; border: 1px solid #e5e5e5; border-radius: 0.5rem; }
+      .settings legend { padding: 0 0.25rem; font-size: 0.875rem; }
+      .option { display: flex; align-items: center; gap: 0.5rem; }
+      .settings input[type="color"] { width: 3rem; height: 2.5rem; padding: 0.2rem; }
+      .settings input[type="checkbox"] { width: 1rem; height: 1rem; margin: 0; padding: 0; accent-color: #202020; }
+      .preview { display: flex; align-items: center; min-height: 16rem; padding: 1.5rem; border: 1px solid #e5e5e5; border-radius: 0.5rem; }
+      #word-cloud { width: 100%; min-width: 0; }
+      #status { min-height: 1.5rem; font-size: 0.875rem; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Claper Word Cloud</h1>
+      <p id="hint">Add a word. Repeat it to give it more weight.</p>
+      <form>
+        <label for="word">Your word</label>
+        <input id="word" name="word" required maxlength="80" autocomplete="off" aria-describedby="hint" placeholder="e.g. Curiosity" />
+        <button type="submit">Add</button>
+        <button type="button" id="fill" title="Replace the cloud with 50 sample words">Fill data</button>
+        <button type="button" id="clear">Clear</button>
+        <button type="button" id="reset">Reset</button>
+      </form>
+      <fieldset class="settings">
+        <legend>Configuration</legend>
+        <div class="option">
+          <label for="highlightColor">Highlight color</label>
+          <input id="highlightColor" type="color" />
+        </div>
+        <div class="option">
+          <label for="textColor">Text color</label>
+          <input id="textColor" type="color" />
+          <button id="autoTextColor" type="button" aria-label="Use automatic text colors">Auto</button>
+        </div>
+        <label class="option" for="animationEnabled">
+          <input id="animationEnabled" type="checkbox" />
+          Animations
+        </label>
+      </fieldset>
+      <section class="preview" aria-label="Word cloud preview">
+        <div id="word-cloud"></div>
+      </section>
+      <p id="status" role="status"></p>
+    </main>
+
+    <script type="module">
+      // @inline-wordcloud-demo
+
+      const initialWords = [
+        { name: 'Design', count: 8 },
+        { name: 'Engineering', count: 7 },
+        { name: 'Ideas', count: 6 },
+        { name: 'Community', count: 5 },
+        { name: 'Learning', count: 4 },
+        { name: 'Sharing', count: 3 },
+        { name: 'Open source', count: 2 },
+        { name: 'Curiosity', count: 1 },
+      ];
+      const cloud = createWordCloud('#word-cloud', initialWords);
+      const input = document.querySelector('#word');
+      const status = document.querySelector('#status');
+      const highlightColor = document.querySelector('#highlightColor');
+      const textColor = document.querySelector('#textColor');
+      const autoTextColor = document.querySelector('#autoTextColor');
+      const animationEnabled = document.querySelector('#animationEnabled');
+
+      function syncOptions() {
+        const settings = cloud.getOptions();
+        highlightColor.value = settings.highlightColor;
+        textColor.value = settings.textColor ?? '#202020';
+        autoTextColor.disabled = settings.textColor === null;
+        animationEnabled.checked = settings.animation;
+      }
+
+      highlightColor.addEventListener('input', event => {
+        cloud.setOptions({ highlightColor: event.target.value });
+      });
+      textColor.addEventListener('input', event => {
+        cloud.setOptions({ textColor: event.target.value });
+        syncOptions();
+      });
+      autoTextColor.addEventListener('click', () => {
+        cloud.setOptions({ textColor: null });
+        syncOptions();
+      });
+      animationEnabled.addEventListener('change', event => {
+        cloud.setOptions({ animation: event.target.checked });
+      });
+
+      function updateStatus() {
+        const words = cloud.getWords();
+        const total = words.reduce((sum, word) => sum + word.count, 0);
+        status.textContent = words.length
+          ? `${words.length} ${words.length === 1 ? 'word' : 'words'} · ${total} ${total === 1 ? 'mention' : 'mentions'}`
+          : 'No words yet. Add one above.';
+      }
+
+      document.querySelector('form').addEventListener('submit', event => {
+        event.preventDefault();
+        const name = input.value.trim();
+        if (!name) return input.focus();
+        cloud.add(name);
+        input.value = '';
+        updateStatus();
+        input.focus();
+      });
+      document.querySelector('#fill').addEventListener('click', () => {
+        cloud.setWords(demoWords);
+        updateStatus();
+      });
+      document.querySelector('#clear').addEventListener('click', () => {
+        cloud.clear();
+        updateStatus();
+        input.focus();
+      });
+      document.querySelector('#reset').addEventListener('click', () => {
+        cloud.setWords(initialWords);
+        updateStatus();
+      });
+      syncOptions();
+      updateStatus();
+    </script>
+  </body>
+</html>

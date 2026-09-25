@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  verify:
+    name: Node.js ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22', '24']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+          package-manager-cache: false
+      - name: Verify source and regressions
+        run: npm run verify
+      - name: Inspect package contents
+        run: npm pack --dry-run --ignore-scripts
+
+  publish:
+    name: Publish to npm
+    needs: verify
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org/
+          package-manager-cache: false
+      - name: Check for an unpublished version
+        id: release
+        run: |
+          node --input-type=module <<'NODE'
+          import { appendFileSync, readFileSync } from 'node:fs';
+          const { name, version } = JSON.parse(readFileSync('package.json', 'utf8'));
+          const url = `https://registry.npmjs.org/${encodeURIComponent(name)}/${encodeURIComponent(version)}`;
+          const response = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+          const published = response.status === 200;
+          if (!published && response.status !== 404) {
+            throw new Error(`Registry lookup failed: HTTP ${response.status}`);
+          }
+          appendFileSync(process.env.GITHUB_OUTPUT, `publish=${!published}\n`);
+          console.log(`${name}@${version}: ${published ? 'already published; skipping' : 'ready to publish'}`);
+          NODE
+      - name: Pack verified release
+        if: steps.release.outputs.publish == 'true'
+        run: |
+          npm install --global npm@11
+          npm pkg set repository.type=git "repository.url=git+${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
+          mkdir "$RUNNER_TEMP/npm-release"
+          npm pack --pack-destination "$RUNNER_TEMP/npm-release"
+      - name: Publish to npm
+        if: steps.release.outputs.publish == 'true'
+        env:
+          # Optional bootstrap token; remove it after configuring npm trusted publishing.
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish "$RUNNER_TEMP/npm-release/"*.tgz --access public --ignore-scripts

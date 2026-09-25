@@ -1,0 +1,490 @@
+<!doctype html>
+<!-- Generated demo: edit demo.template.html and run npm run build:demo to update. -->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Claper Word Cloud demo</title>
+    <style>
+      * { box-sizing: border-box; }
+      body { max-width: 52rem; margin: 4rem auto; padding: 0 1.25rem; font: 16px/1.5 system-ui, sans-serif; color: #202020; background: #fff; }
+      h1 { margin-bottom: 0.5rem; font-size: 1.5rem; }
+      p { color: #666; }
+      form { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 1.5rem 0; }
+      form > label { width: 100%; }
+      input, button { padding: 0.6rem 0.8rem; border: 1px solid #ccc; border-radius: 0.35rem; font: inherit; }
+      #word { flex: 1 1 12rem; min-width: 0; }
+      button { background: #f5f5f5; color: inherit; cursor: pointer; }
+      button:disabled { cursor: default; opacity: 0.5; }
+      :focus-visible { outline: 2px solid #1683b4; outline-offset: 2px; }
+      .settings { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem 1.5rem; min-width: 0; margin: 0 0 1.5rem; padding: 1rem; border: 1px solid #e5e5e5; border-radius: 0.5rem; }
+      .settings legend { padding: 0 0.25rem; font-size: 0.875rem; }
+      .option { display: flex; align-items: center; gap: 0.5rem; }
+      .settings input[type="color"] { width: 3rem; height: 2.5rem; padding: 0.2rem; }
+      .settings input[type="checkbox"] { width: 1rem; height: 1rem; margin: 0; padding: 0; accent-color: #202020; }
+      .preview { display: flex; align-items: center; min-height: 16rem; padding: 1.5rem; border: 1px solid #e5e5e5; border-radius: 0.5rem; }
+      #word-cloud { width: 100%; min-width: 0; }
+      #status { min-height: 1.5rem; font-size: 0.875rem; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Claper Word Cloud</h1>
+      <p id="hint">Add a word. Repeat it to give it more weight.</p>
+      <form>
+        <label for="word">Your word</label>
+        <input id="word" name="word" required maxlength="80" autocomplete="off" aria-describedby="hint" placeholder="e.g. Curiosity" />
+        <button type="submit">Add</button>
+        <button type="button" id="fill" title="Replace the cloud with 50 sample words">Fill data</button>
+        <button type="button" id="clear">Clear</button>
+        <button type="button" id="reset">Reset</button>
+      </form>
+      <fieldset class="settings">
+        <legend>Configuration</legend>
+        <div class="option">
+          <label for="highlightColor">Highlight color</label>
+          <input id="highlightColor" type="color" />
+        </div>
+        <div class="option">
+          <label for="textColor">Text color</label>
+          <input id="textColor" type="color" />
+          <button id="autoTextColor" type="button" aria-label="Use automatic text colors">Auto</button>
+        </div>
+        <label class="option" for="animationEnabled">
+          <input id="animationEnabled" type="checkbox" />
+          Animations
+        </label>
+      </fieldset>
+      <section class="preview" aria-label="Word cloud preview">
+        <div id="word-cloud"></div>
+      </section>
+      <p id="status" role="status"></p>
+    </main>
+
+    <script type="module">
+/*
+MIT License
+
+Copyright (c) 2026 Claper
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+*/
+
+/*!
+ * @claperco/wordcloud
+ * Copyright (c) 2026 Claper
+ * SPDX-License-Identifier: MIT
+ * See LICENSE for the full license text.
+ */
+/** A responsive, dependency-free word cloud. Styling inherits from its container. */
+export function createWordCloud(target, initialWords = [], options = {}) {
+  const element = typeof target === 'string' ? document.querySelector(target) : target;
+  if (!(element instanceof HTMLElement)) throw new TypeError('A word-cloud container is required.');
+
+  let settings = { highlightColor: '#24AFEA', textColor: null, animation: true };
+
+  const isColor = value =>
+    typeof value === 'string' && CSS.supports('color', value);
+
+  function configure(next) {
+    const { highlightColor, textColor, animation } = { ...settings, ...next };
+
+    if (!isColor(highlightColor)) {
+      throw new TypeError('highlightColor must be a valid CSS color.');
+    }
+
+    if (textColor !== null && !isColor(textColor)) {
+      throw new TypeError('textColor must be a valid CSS color or null for automatic shades.');
+    }
+
+    if (typeof animation !== 'boolean') {
+      throw new TypeError('animation must be a boolean.');
+    }
+
+    settings = { highlightColor, textColor, animation };
+  }
+
+  configure(options);
+
+  let words = [];
+  let byName = new Map();
+  let mentionCount = 0;
+  let frame;
+  let highlightTimer;
+  let renderedWidth;
+  let destroyed = false;
+  const highlights = new Map();
+  const highlightedNodes = new Map();
+  const nameKey = name => name.normalize('NFKC').toLowerCase();
+  const content = document.createElement('div');
+  content.setAttribute('role', 'list');
+  content.setAttribute('aria-label', 'Word cloud');
+  Object.assign(content.style, {
+    display: 'flex', flexDirection: 'column', alignItems: 'center',
+    justifyContent: 'center', gap: '5px', width: '100%', minWidth: '0',
+  });
+  element.append(content);
+
+  function normalize(word) {
+    if (typeof word === 'string') word = { name: word };
+    const name = String(word?.name ?? '').trim();
+    const count = word?.count ?? 1;
+    if (!name || !Number.isSafeInteger(count) || count < 1) {
+      throw new TypeError('Each word needs a name and a positive integer count.');
+    }
+    const id = word.id;
+    return { id: id == null ? undefined : String(id), name, count };
+  }
+
+  function checkedTotal(total) {
+    if (!Number.isSafeInteger(total)) throw new RangeError('Total count exceeds the safe integer limit.');
+    return total;
+  }
+
+  function assertActive() {
+    if (destroyed) throw new Error('This word cloud has been destroyed.');
+  }
+
+  function schedule() {
+    if (destroyed || frame !== undefined) return;
+    frame = requestAnimationFrame(render);
+  }
+
+  function expireHighlights() {
+    clearTimeout(highlightTimer);
+    highlightTimer = undefined;
+    if (destroyed) return;
+    const now = performance.now();
+    let remaining = Infinity;
+    for (const [id, highlight] of highlights) {
+      const expiresIn = 800 - (now - highlight.start);
+      if (expiresIn <= 0) highlights.delete(id);
+      else remaining = Math.min(remaining, expiresIn);
+    }
+    for (const [id, { node, animation }] of highlightedNodes) {
+      if (highlights.has(id)) continue;
+      animation?.cancel();
+      node.style.backgroundColor = '';
+      node.style.boxShadow = '';
+      node.style.borderRadius = '';
+      highlightedNodes.delete(id);
+    }
+    if (remaining !== Infinity) highlightTimer = setTimeout(expireHighlights, remaining);
+  }
+
+  function render() {
+    frame = undefined;
+    if (destroyed) return;
+    const width = content.clientWidth;
+    renderedWidth = width;
+    for (const { animation } of highlightedNodes.values()) animation?.cancel();
+    highlightedNodes.clear();
+    content.replaceChildren();
+    if (!width || !words.length) {
+      if (!words.length) highlights.clear();
+      expireHighlights();
+      return;
+    }
+
+    const sorted = api.getWords().sort((a, b) => b.p - a.p);
+    const min = sorted.at(-1).p;
+    const max = sorted[0].p;
+    const gap = Math.min(16, Math.max(8, width * 0.015));
+    const largest = Math.min(68, Math.max(28, width * 0.068));
+    const nodes = sorted.map(word => {
+      const weight = max === min ? 1 : ((word.p - min) / (max - min)) ** 1.15;
+      const node = document.createElement('span');
+      node.textContent = word.name;
+      node.dataset.wordId = word.id;
+      node.setAttribute('role', 'listitem');
+      node.setAttribute('aria-label', `${word.name}, ${word.count} occurrences, ${(word.p * 100).toFixed(1)} percent`);
+      node.title = `${word.name} · ${word.count} occurrences · ${(word.p * 100).toFixed(1)}%`;
+      Object.assign(node.style, {
+        fontSize: `${13 + weight * (largest - 13)}px`,
+        color: settings.textColor
+          ? `color-mix(in srgb, ${settings.textColor} ${48 + weight * 52}%, white)`
+          : `hsl(240 4% ${57 - weight * 47}%)`,
+        fontWeight: '750', lineHeight: '1.15', letterSpacing: '-0.045em',
+        whiteSpace: 'nowrap', display: 'inline-block', flexShrink: '0',
+      });
+      return node;
+    });
+
+    // Measure real glyphs so rows also fit after a font or container changes.
+    const measure = document.createElement('div');
+    Object.assign(measure.style, { height: '0', overflow: 'hidden', visibility: 'hidden' });
+    for (const node of nodes) measure.append(node);
+    content.append(measure);
+    const sizes = nodes.map(node => node.getBoundingClientRect().width);
+    const shrunk = [];
+    for (let i = 0; i < nodes.length; i++) {
+      if (sizes[i] <= width) continue;
+      nodes[i].style.fontSize = `${parseFloat(nodes[i].style.fontSize) * width / sizes[i]}px`;
+      shrunk.push(i);
+    }
+    // Keep reads separate from writes: shrinking any number of words costs one layout.
+    for (const i of shrunk) sizes[i] = nodes[i].getBoundingClientRect().width;
+
+    const rows = [];
+    let row = [];
+    let used = 0;
+    nodes.forEach((node, i) => {
+      // The outer rows taper gently, giving the cloud a centered silhouette.
+      const limit = width * Math.max(0.7, 1 - rows.length * 0.025);
+      if (row.length && used + gap + sizes[i] > limit) {
+        rows.push(row);
+        row = [];
+        used = 0;
+      }
+      used += (row.length ? gap : 0) + sizes[i];
+      row.push(node);
+    });
+    if (row.length) rows.push(row);
+
+    const centered = new Array(rows.length);
+    let left = Math.floor(rows.length / 2);
+    let right = left;
+    centered[left] = rows[0];
+    for (let i = 1; i < rows.length; i++) centered[i % 2 ? --left : ++right] = rows[i];
+    const fragment = document.createDocumentFragment();
+    centered.forEach(items => {
+      const line = document.createElement('div');
+      Object.assign(line.style, { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: `${gap}px`, maxWidth: '100%' });
+      for (const node of items) line.append(node);
+      fragment.append(line);
+    });
+    content.replaceChildren(fragment);
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    for (const node of nodes) {
+      const highlight = highlights.get(node.dataset.wordId);
+      if (!highlight) continue;
+      const elapsed = performance.now() - highlight.start;
+      if (elapsed >= 800) {
+        highlights.delete(node.dataset.wordId);
+        continue;
+      }
+      node.style.borderRadius = '4px';
+      const color = settings.highlightColor;
+      const visual = { node, animation: null };
+      highlightedNodes.set(node.dataset.wordId, visual);
+      if (!settings.animation || reducedMotion) {
+        node.style.backgroundColor = color;
+        node.style.boxShadow = `0 0 0 3px ${color}`;
+        continue;
+      }
+      const bounce = highlight.isNew;
+      const animation = node.animate([
+        { offset: 0, opacity: highlight.isNew ? 0 : 1,
+          transform: bounce ? 'scale(0.35)' : 'none', easing: 'ease-out',
+          backgroundColor: color, boxShadow: `0 0 0 3px ${color}` },
+        { offset: 0.18, opacity: 1, transform: bounce ? 'scale(1.18)' : 'none', easing: 'ease-in-out',
+          backgroundColor: color, boxShadow: `0 0 0 3px ${color}` },
+        { offset: 0.29, opacity: 1, transform: bounce ? 'scale(0.92)' : 'none', easing: 'ease-in-out',
+          backgroundColor: color, boxShadow: `0 0 0 3px ${color}` },
+        { offset: 0.38, opacity: 1, transform: bounce ? 'scale(1.05)' : 'none', easing: 'ease-in-out',
+          backgroundColor: color, boxShadow: `0 0 0 3px ${color}` },
+        { offset: 0.46, opacity: 1, transform: 'none',
+          backgroundColor: color, boxShadow: `0 0 0 3px ${color}` },
+        { offset: 0.65, opacity: 1, transform: 'none',
+          backgroundColor: color, boxShadow: `0 0 0 3px ${color}` },
+        { offset: 1, opacity: 1, transform: 'none',
+          backgroundColor: 'transparent', boxShadow: '0 0 0 3px transparent' },
+      ], { duration: 800, easing: 'linear' });
+      // Preserve progress when a resize or another add rebuilds the rows.
+      animation.currentTime = elapsed;
+      visual.animation = animation;
+    }
+    expireHighlights();
+  }
+
+  const observer = new ResizeObserver(() => {
+    if (content.clientWidth !== renderedWidth) schedule();
+  });
+  observer.observe(element);
+  document.fonts?.ready.then(schedule);
+  document.fonts?.addEventListener('loadingdone', schedule);
+
+  const api = {
+    setOptions(next) { assertActive(); configure(next); schedule(); },
+    getOptions() { return { ...settings }; },
+    add(name, count = 1) {
+      assertActive();
+      const word = normalize({ name, count });
+      const total = checkedTotal(mentionCount + word.count);
+      const key = nameKey(word.name);
+      const existing = byName.get(key);
+      if (existing) existing.count += word.count;
+      else {
+        word.id = crypto.randomUUID();
+        words.push(word);
+        byName.set(key, word);
+      }
+      mentionCount = total;
+      const id = existing?.id ?? word.id;
+      highlights.set(id, { start: performance.now(), isNew: !existing });
+      schedule();
+      return id;
+    },
+    remove(id) {
+      assertActive();
+      const index = words.findIndex(word => word.id === id);
+      if (index === -1) return;
+      const word = words[index];
+      mentionCount -= word.count;
+      byName.delete(nameKey(word.name));
+      words.splice(index, 1);
+      highlights.delete(id);
+      schedule();
+    },
+    setWords(next) {
+      assertActive();
+      if (!Array.isArray(next)) throw new TypeError('Words must be an array.');
+      const grouped = new Map();
+      const ids = new Set();
+      let total = 0;
+      for (const entry of next) {
+        const word = normalize(entry);
+        total = checkedTotal(total + word.count);
+        const key = nameKey(word.name);
+        const existing = grouped.get(key);
+        if (existing) existing.count += word.count;
+        else {
+          word.id ??= crypto.randomUUID();
+          if (ids.has(word.id)) throw new TypeError('Word IDs must be unique.');
+          ids.add(word.id);
+          grouped.set(key, word);
+        }
+      }
+      words = [...grouped.values()];
+      byName = grouped;
+      mentionCount = total;
+      highlights.clear();
+      schedule();
+    },
+    clear() {
+      assertActive();
+      words = [];
+      byName.clear();
+      mentionCount = 0;
+      highlights.clear();
+      schedule();
+    },
+    getWords() {
+      return words.map(word => ({ ...word, p: word.count / mentionCount }));
+    },
+    destroy() {
+      if (destroyed) return;
+      destroyed = true;
+      clearTimeout(highlightTimer);
+      highlightTimer = undefined;
+      highlights.clear();
+      for (const { animation } of highlightedNodes.values()) animation?.cancel();
+      highlightedNodes.clear();
+      words = [];
+      byName.clear();
+      mentionCount = 0;
+      cancelAnimationFrame(frame);
+      frame = undefined;
+      observer.disconnect();
+      document.fonts?.removeEventListener('loadingdone', schedule);
+      content.remove();
+    },
+  };
+  try { api.setWords(initialWords); } catch (error) { api.destroy(); throw error; }
+  return api;
+}
+
+const demoWords = [{"name":"Engineering","count":100},{"name":"Architecture","count":92},{"name":"Development","count":88},{"name":"Collaboration","count":84},{"name":"Performance","count":80},{"name":"Infrastructure","count":76},{"name":"Optimization","count":72},{"name":"Scalability","count":68},{"name":"Reliability","count":64},{"name":"Productivity","count":60},{"name":"Automation","count":57},{"name":"Integration","count":54},{"name":"Deployment","count":51},{"name":"Observability","count":48},{"name":"Monitoring","count":45},{"name":"Authentication","count":43},{"name":"Authorization","count":41},{"name":"Database","count":39},{"name":"Frontend","count":37},{"name":"Backend","count":35},{"name":"Microservices","count":33},{"name":"Containers","count":31},{"name":"Networking","count":29},{"name":"Security","count":27},{"name":"Testing","count":25},{"name":"Refactoring","count":23},{"name":"Documentation","count":22},{"name":"Maintainability","count":21},{"name":"Availability","count":20},{"name":"Resilience","count":19},{"name":"Concurrency","count":18},{"name":"Synchronization","count":17},{"name":"Serialization","count":16},{"name":"Caching","count":15},{"name":"Streaming","count":14},{"name":"Messaging","count":13},{"name":"Analytics","count":12},{"name":"Telemetry","count":11},{"name":"Configuration","count":10},{"name":"Dependencies","count":10},{"name":"Compatibility","count":9},{"name":"Accessibility","count":8},{"name":"Responsiveness","count":8},{"name":"Modularity","count":8},{"name":"Extensibility","count":7},{"name":"Persistence","count":6},{"name":"Validation","count":6},{"name":"Provisioning","count":6},{"name":"Orchestration","count":5},{"name":"Innovation","count":4}];
+
+      const initialWords = [
+        { name: 'Design', count: 8 },
+        { name: 'Engineering', count: 7 },
+        { name: 'Ideas', count: 6 },
+        { name: 'Community', count: 5 },
+        { name: 'Learning', count: 4 },
+        { name: 'Sharing', count: 3 },
+        { name: 'Open source', count: 2 },
+        { name: 'Curiosity', count: 1 },
+      ];
+      const cloud = createWordCloud('#word-cloud', initialWords);
+      const input = document.querySelector('#word');
+      const status = document.querySelector('#status');
+      const highlightColor = document.querySelector('#highlightColor');
+      const textColor = document.querySelector('#textColor');
+      const autoTextColor = document.querySelector('#autoTextColor');
+      const animationEnabled = document.querySelector('#animationEnabled');
+
+      function syncOptions() {
+        const settings = cloud.getOptions();
+        highlightColor.value = settings.highlightColor;
+        textColor.value = settings.textColor ?? '#202020';
+        autoTextColor.disabled = settings.textColor === null;
+        animationEnabled.checked = settings.animation;
+      }
+
+      highlightColor.addEventListener('input', event => {
+        cloud.setOptions({ highlightColor: event.target.value });
+      });
+      textColor.addEventListener('input', event => {
+        cloud.setOptions({ textColor: event.target.value });
+        syncOptions();
+      });
+      autoTextColor.addEventListener('click', () => {
+        cloud.setOptions({ textColor: null });
+        syncOptions();
+      });
+      animationEnabled.addEventListener('change', event => {
+        cloud.setOptions({ animation: event.target.checked });
+      });
+
+      function updateStatus() {
+        const words = cloud.getWords();
+        const total = words.reduce((sum, word) => sum + word.count, 0);
+        status.textContent = words.length
+          ? `${words.length} ${words.length === 1 ? 'word' : 'words'} · ${total} ${total === 1 ? 'mention' : 'mentions'}`
+          : 'No words yet. Add one above.';
+      }
+
+      document.querySelector('form').addEventListener('submit', event => {
+        event.preventDefault();
+        const name = input.value.trim();
+        if (!name) return input.focus();
+        cloud.add(name);
+        input.value = '';
+        updateStatus();
+        input.focus();
+      });
+      document.querySelector('#fill').addEventListener('click', () => {
+        cloud.setWords(demoWords);
+        updateStatus();
+      });
+      document.querySelector('#clear').addEventListener('click', () => {
+        cloud.clear();
+        updateStatus();
+        input.focus();
+      });
+      document.querySelector('#reset').addEventListener('click', () => {
+        cloud.setWords(initialWords);
+        updateStatus();
+      });
+      syncOptions();
+      updateStatus();
+    </script>
+  </body>
+</html>
